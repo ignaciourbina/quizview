@@ -9,7 +9,7 @@ export interface BaseQuestion {
   difficulty?: number;
   image?: string;
   hint?: string;
-  feedback?: string;
+  feedback?: string; // General feedback for the question
 }
 
 export interface WrittenResponseQuestion extends BaseQuestion {
@@ -20,7 +20,7 @@ export interface WrittenResponseQuestion extends BaseQuestion {
 
 export interface ShortAnswerQuestion extends BaseQuestion {
   type: 'SA';
-  bestAnswer: string;
+  bestAnswer: string; // Changed from array to single best answer based on D2L format
   evaluation: 'regexp' | 'sensitive' | 'insensitive';
   inputBox: { rows: number; cols: number };
 }
@@ -39,7 +39,7 @@ export interface MatchingQuestion extends BaseQuestion {
 
 export interface MCOption {
   text: string;
-  percent: number;
+  percent: number; // Percentage credit (0-100)
   feedback?: string;
   htmlFlag: boolean;
   feedbackHtmlFlag: boolean;
@@ -51,10 +51,11 @@ export interface MultipleChoiceQuestion extends BaseQuestion {
 }
 
 export interface TFOption {
-  isTrue: boolean;
-  credit: number;
+  isTrue: boolean; // Redundant but can be useful
+  credit: number; // Percentage credit (typically 100 or 0, maybe others)
   feedback?: string;
-  htmlFlag: boolean; // Added based on D2L sample
+  htmlFlag: boolean;
+  definedLine?: number; // Internal helper for parser
 }
 
 export interface TrueFalseQuestion extends BaseQuestion {
@@ -65,7 +66,7 @@ export interface TrueFalseQuestion extends BaseQuestion {
 
 export interface MSOption {
   text: string;
-  weight: number; // 0 or 1 typically
+  weight: number; // Positive for correct, negative for incorrect, 0 for neutral
   feedback?: string;
   htmlFlag: boolean;
   feedbackHtmlFlag: boolean;
@@ -74,14 +75,16 @@ export interface MSOption {
 export interface MultiSelectQuestion extends BaseQuestion {
   type: 'MS';
   options: MSOption[];
-  scoring: 'RightAnswersLimitedSelections' | 'RightAnswers' | 'RightMinusWrong' | 'AllOrNothing';
+  // D2L has various complex scoring, simplifying here.
+  // 'RightAnswersLimitedSelections' | 'RightAnswers' | 'RightMinusWrong' | 'AllOrNothing';
+  scoring: string; // Store the raw scoring string for now
 }
 
 export interface OrderingItem {
   text: string;
   feedback?: string;
   htmlFlag: boolean;
-  feedbackHtmlFlag: boolean; // Added based on D2L sample structure
+  feedbackHtmlFlag: boolean;
 }
 
 export interface OrderingQuestion extends BaseQuestion {
@@ -90,6 +93,7 @@ export interface OrderingQuestion extends BaseQuestion {
   scoring: 'EquallyWeighted' | 'AllOrNothing' | 'RightMinusWrong';
 }
 
+// Union type representing any possible question format
 export type Question =
   | WrittenResponseQuestion
   | ShortAnswerQuestion
@@ -99,6 +103,7 @@ export type Question =
   | MultiSelectQuestion
   | OrderingQuestion;
 
+// Represents the entire parsed quiz structure
 export interface Quiz {
   questions: Question[];
 }
