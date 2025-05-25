@@ -90,3 +90,33 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+/* Custom styles for rendered HTML content, especially tables */
+@layer components {
+  .rendered-html-content table {
+    @apply w-full my-4 border-collapse border border-border text-sm;
+  }
+  .rendered-html-content th,
+  .rendered-html-content td {
+    @apply border border-border px-3 py-2 text-left align-top;
+  }
+  .rendered-html-content th {
+    @apply bg-muted font-semibold;
+  }
+  .rendered-html-content p {
+    @apply my-2; /* Add some margin to paragraphs inside rendered HTML */
+  }
+  .rendered-html-content ul,
+  .rendered-html-content ol {
+    @apply my-2 pl-5;
+  }
+  .rendered-html-content ul {
+    @apply list-disc;
+  }
+  .rendered-html-content ol {
+    @apply list-decimal;
+  }
+  .rendered-html-content li {
+    @apply mb-1;
+  }
+}

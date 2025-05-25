@@ -33,7 +33,7 @@ const RenderHtml = ({ content }: { content?: string | null | undefined }) => {
     // WARNING: In a real app, use a proper sanitizer library like DOMPurify
     // to prevent XSS attacks before using dangerouslySetInnerHTML.
     // This basic version assumes trusted content.
-    return <div dangerouslySetInnerHTML={{ __html: content }} />;
+    return <div className="rendered-html-content" dangerouslySetInnerHTML={{ __html: content }} />;
 };
 
 
