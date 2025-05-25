@@ -1,3 +1,4 @@
+
 import type {
   Quiz,
   Question,
@@ -33,7 +34,6 @@ const getValue = <T>(arr: string[], index: number, defaultValue: T): string | T 
 }
 
 // Basic CSV cell splitting function, handles simple quotes but not escaped quotes within quotes.
-// A proper library (like Papaparse) is recommended for robust production use.
 const splitCsvRow = (row: string): string[] => {
     const result: string[] = [];
     let currentCell = '';
@@ -42,33 +42,78 @@ const splitCsvRow = (row: string): string[] => {
     for (let i = 0; i < row.length; i++) {
         const char = row[i];
 
-        if (char === '"' && (i === 0 || row[i - 1] !== '\\')) { // Handle quote start/end (ignore escaped \)
+        if (char === '"') {
+             // Handle CSV standard for escaped quotes ("")
+            if (inQuotes && i + 1 < row.length && row[i+1] === '"') {
+                currentCell += '"'; // Add one quote to the cell
+                i++; // Skip the next quote
+                continue;
+            }
             inQuotes = !inQuotes;
         } else if (char === ',' && !inQuotes) {
-            result.push(currentCell.trim().replace(/^"|"$/g, '')); // Trim and remove surrounding quotes
+            result.push(currentCell.trim()); // Push currentCell as is, will remove outer quotes later if necessary
             currentCell = '';
         } else {
             currentCell += char;
         }
     }
-    result.push(currentCell.trim().replace(/^"|"$/g, '')); // Add the last cell
-    return result;
+    result.push(currentCell.trim()); // Add the last cell
+
+    // Remove surrounding quotes from each cell if they exist
+    return result.map(cell => {
+        if (cell.startsWith('"') && cell.endsWith('"')) {
+            return cell.substring(1, cell.length - 1).replace(/""/g, '"'); // Replace escaped "" with "
+        }
+        return cell;
+    });
 };
+
+// Robust CSV record splitter that handles quoted newlines
+function splitCsvToRecords(csvString: string): string[] {
+    const records: string[] = [];
+    let currentRecordStart = 0;
+    let inQuotes = false;
+
+    for (let i = 0; i < csvString.length; i++) {
+        const char = csvString[i];
+
+        if (char === '"') {
+            // Check for escaped quote ""
+            if (i + 1 < csvString.length && csvString[i+1] === '"') {
+                i++; // Skip the second quote of an escaped pair
+                continue;
+            }
+            inQuotes = !inQuotes;
+        }
+
+        if (char === '\n' && !inQuotes) {
+            records.push(csvString.substring(currentRecordStart, i));
+            currentRecordStart = i + 1;
+        }
+    }
+    // Add the last record if any (or the only record if no newlines)
+    if (currentRecordStart < csvString.length) {
+        records.push(csvString.substring(currentRecordStart));
+    }
+    
+    return records
+        .map(record => record.trim()) // Trim whitespace from each record
+        .filter(record => record.length > 0 && !/^\s*$/.test(record)); // Remove empty/whitespace-only lines
+}
 
 
 export function parseQuizCsv(csvContent: string): Quiz {
-  const rows = csvContent
-    .split('\n')
-    .map(row => row.trim())
-    .filter(row => row.length > 0 && !/^\s*$/.test(row)); // Remove empty/whitespace-only lines
+  // Use the more robust record splitter
+  const records = splitCsvToRecords(csvContent);
 
   const questions: Question[] = [];
   let currentQuestion: Partial<Question> | null = null;
-  let currentLineNumber = 0;
+  let currentLineNumber = 0; // This will now represent record number
 
-  for (const rawRow of rows) {
+  for (const rawRecord of records) {
     currentLineNumber++;
-    const row = splitCsvRow(rawRow);
+    // splitCsvRow now processes a single, complete logical record
+    const row = splitCsvRow(rawRecord); 
     const typeOrKey = getValue(row, 0, '').toLowerCase();
     const value = getValue(row, 1, '');
     const value2 = getValue(row, 2, '');
@@ -78,35 +123,29 @@ export function parseQuizCsv(csvContent: string): Quiz {
 
 
     if (typeOrKey === 'newquestion') {
-      // Finalize the previous question before starting a new one
       if (currentQuestion) {
-          // Validate and push the completed question
           if (currentQuestion.type && currentQuestion.title && currentQuestion.questionText && currentQuestion.points !== undefined) {
-              // Further validation based on type could be added here if needed before pushing
               questions.push(currentQuestion as Question);
           } else {
-              console.warn(`[Line ${currentLineNumber}] Skipping incomplete question started before this line. Missing type, title, text, or points. Title: ${currentQuestion.title || 'N/A'}`);
+              console.warn(`[Record ${currentLineNumber}] Skipping incomplete question started before this record. Missing type, title, text, or points. Title: ${currentQuestion.title || 'N/A'}`);
           }
       }
-      // Start a new question object
       const questionTypeCode = value as QuestionType;
-      // Basic validation for known types
       const knownTypes: QuestionType[] = ['WR', 'SA', 'M', 'MC', 'TF', 'MS', 'O'];
       if (!knownTypes.includes(questionTypeCode)) {
-          console.warn(`[Line ${currentLineNumber}] Unknown question type '${questionTypeCode}'. Skipping this 'NewQuestion' entry.`);
-          currentQuestion = null; // Reset currentQuestion as the type is invalid
+          console.warn(`[Record ${currentLineNumber}] Unknown question type '${questionTypeCode}'. Skipping this 'NewQuestion' entry.`);
+          currentQuestion = null; 
           continue;
       }
-      currentQuestion = { type: questionTypeCode, points: 1 }; // Default points to 1
-      continue; // Move to the next row
+      currentQuestion = { type: questionTypeCode, points: 1 }; 
+      continue; 
     }
 
     if (!currentQuestion) {
-      // Skip rows if we haven't encountered a valid 'NewQuestion' or if the previous one was invalid
       continue;
     }
 
-    try { // Add try-catch around processing each row for better error isolation
+    try { 
         switch (typeOrKey) {
           case 'id':
             currentQuestion.id = value;
@@ -115,7 +154,7 @@ export function parseQuizCsv(csvContent: string): Quiz {
             currentQuestion.title = value;
             break;
           case 'questiontext':
-            currentQuestion.questionText = value;
+            currentQuestion.questionText = value; // `value` is row[1], which should now be the full HTML
             break;
           case 'points':
             currentQuestion.points = safeParseInt(value, 1);
@@ -130,8 +169,6 @@ export function parseQuizCsv(csvContent: string): Quiz {
             currentQuestion.hint = value;
             break;
           case 'feedback':
-             // Assign feedback. Logic attempts to assign to the most recently added element (option/item/etc.)
-             // If no specific element context exists, assign as general question feedback.
             let feedbackAssigned = false;
             if (currentQuestion.type === 'MC' && (currentQuestion as Partial<MultipleChoiceQuestion>).options?.length > 0) {
                  const mc = currentQuestion as Partial<MultipleChoiceQuestion>;
@@ -140,12 +177,8 @@ export function parseQuizCsv(csvContent: string): Quiz {
                  const ms = currentQuestion as Partial<MultiSelectQuestion>;
                  if(ms.options) ms.options[ms.options.length - 1].feedback = value; feedbackAssigned = true;
             } else if (currentQuestion.type === 'TF') {
-                // D2L TF feedback seems less specific. Assign to last defined option or general?
-                // Let's try assigning to the last explicitly defined one (true/false row).
                 const tf = currentQuestion as Partial<TrueFalseQuestion>;
-                // Check which option was defined most recently (this assumes TF rows appear together)
-                // This is heuristic. If true/false feedback rows are separate, might misassign.
-                if(tf.falseOption && (!tf.trueOption || tf.falseOption.definedLine > tf.trueOption.definedLine) ){
+                if(tf.falseOption && (!tf.trueOption || (tf.falseOption.definedLine && tf.trueOption.definedLine && tf.falseOption.definedLine > tf.trueOption.definedLine)) ){
                     tf.falseOption.feedback = value; feedbackAssigned = true;
                 } else if (tf.trueOption) {
                     tf.trueOption.feedback = value; feedbackAssigned = true;
@@ -154,13 +187,11 @@ export function parseQuizCsv(csvContent: string): Quiz {
                  const oq = currentQuestion as Partial<OrderingQuestion>;
                  if(oq.items) oq.items[oq.items.length - 1].feedback = value; feedbackAssigned = true;
             }
-            // If not assigned to a specific part above, or if WR/SA, assign as general feedback
             if (!feedbackAssigned) {
                 currentQuestion.feedback = value;
             }
             break;
 
-          // Written Response specific
           case 'initialtext':
             (currentQuestion as Partial<WrittenResponseQuestion>).initialText = value;
             break;
@@ -168,25 +199,23 @@ export function parseQuizCsv(csvContent: string): Quiz {
             (currentQuestion as Partial<WrittenResponseQuestion>).answerKey = value;
             break;
 
-          // Short Answer specific
           case 'inputbox':
             (currentQuestion as Partial<ShortAnswerQuestion>).inputBox = {
               rows: safeParseInt(value, 1),
               cols: safeParseInt(value2, 40),
             };
             break;
-          case 'answer': // For SA
+          case 'answer': 
             if (currentQuestion.type === 'SA') {
                 const sa = currentQuestion as Partial<ShortAnswerQuestion>;
-                sa.bestAnswer = value2; // The actual answer text
+                sa.bestAnswer = value2; 
                 const flag = value3.toLowerCase();
                 sa.evaluation = flag === 'regexp' ? 'regexp' : (flag === 'sensitive' ? 'sensitive' : 'insensitive');
             } else {
-                 console.warn(`[Line ${currentLineNumber}] 'Answer' row encountered for non-SA question type: ${currentQuestion.type}. Ignoring.`);
+                 console.warn(`[Record ${currentLineNumber}] 'Answer' row encountered for non-SA question type: ${currentQuestion.type}. Ignoring.`);
             }
             break;
 
-          // Matching, MS, Ordering specific
            case 'scoring':
              if (currentQuestion.type === 'M') {
                  (currentQuestion as Partial<MatchingQuestion>).scoring = value as MatchingQuestion['scoring'];
@@ -195,55 +224,51 @@ export function parseQuizCsv(csvContent: string): Quiz {
              } else if (currentQuestion.type === 'O') {
                 (currentQuestion as Partial<OrderingQuestion>).scoring = value as OrderingQuestion['scoring'];
              } else {
-                 console.warn(`[Line ${currentLineNumber}] 'Scoring' row encountered for incompatible question type: ${currentQuestion.type}. Ignoring.`);
+                 console.warn(`[Record ${currentLineNumber}] 'Scoring' row encountered for incompatible question type: ${currentQuestion.type}. Ignoring.`);
              }
             break;
 
-          // Matching specific
-          case 'choice': // For M
+          case 'choice': 
             if (currentQuestion.type === 'M') {
               const mq = currentQuestion as Partial<MatchingQuestion>;
               if (!mq.pairs) mq.pairs = [];
               const choiceNo = safeParseInt(value);
               if (choiceNo <= 0) {
-                  console.warn(`[Line ${currentLineNumber}] Invalid Choice number '${value}' for Matching question '${mq.title}'. Skipping choice.`);
+                  console.warn(`[Record ${currentLineNumber}] Invalid Choice number '${value}' for Matching question '${mq.title}'. Skipping choice.`);
                   continue;
               }
               let pair = mq.pairs.find(p => p.choiceNo === choiceNo);
               if (pair) {
-                  pair.choiceText = value2; // Update existing choice text
+                  pair.choiceText = value2; 
               } else {
-                  mq.pairs.push({ choiceNo: choiceNo, choiceText: value2, matchText: '' }); // Add new pair with placeholder matchText
+                  mq.pairs.push({ choiceNo: choiceNo, choiceText: value2, matchText: '' }); 
               }
             } else {
-                 console.warn(`[Line ${currentLineNumber}] 'Choice' row encountered for non-Matching question type: ${currentQuestion.type}. Ignoring.`);
+                 console.warn(`[Record ${currentLineNumber}] 'Choice' row encountered for non-Matching question type: ${currentQuestion.type}. Ignoring.`);
             }
             break;
-           case 'match': // For M
+           case 'match': 
              if (currentQuestion.type === 'M') {
                const mq = currentQuestion as Partial<MatchingQuestion>;
                if (!mq.pairs) mq.pairs = [];
                const choiceNo = safeParseInt(value);
                if (choiceNo <= 0) {
-                   console.warn(`[Line ${currentLineNumber}] Invalid Match number '${value}' for Matching question '${mq.title}'. Skipping match.`);
+                   console.warn(`[Record ${currentLineNumber}] Invalid Match number '${value}' for Matching question '${mq.title}'. Skipping match.`);
                    continue;
                }
                let pair = mq.pairs.find(p => p.choiceNo === choiceNo);
                if (pair) {
-                   pair.matchText = value2; // Update existing match text
+                   pair.matchText = value2; 
                } else {
-                    // Match appeared before choice - log warning and add placeholder
-                   console.warn(`[Line ${currentLineNumber}] Matching question '${mq.title}' has Match row for non-existent Choice number ${choiceNo}. Creating placeholder choice.`);
+                   console.warn(`[Record ${currentLineNumber}] Matching question '${mq.title}' has Match row for non-existent Choice number ${choiceNo}. Creating placeholder choice.`);
                    mq.pairs.push({ choiceNo: choiceNo, choiceText: `[Choice ${choiceNo} Placeholder]`, matchText: value2 });
                }
              } else {
-                  console.warn(`[Line ${currentLineNumber}] 'Match' row encountered for non-Matching question type: ${currentQuestion.type}. Ignoring.`);
+                  console.warn(`[Record ${currentLineNumber}] 'Match' row encountered for non-Matching question type: ${currentQuestion.type}. Ignoring.`);
              }
              break;
 
-
-          // Multiple Choice / Multi-Select specific
-          case 'option': // For MC, MS
+          case 'option': 
             if (currentQuestion.type === 'MC') {
               const mcq = currentQuestion as Partial<MultipleChoiceQuestion>;
               if (!mcq.options) mcq.options = [];
@@ -251,39 +276,36 @@ export function parseQuizCsv(csvContent: string): Quiz {
                 percent: safeParseInt(value),
                 text: value2,
                 htmlFlag: value3.toLowerCase() === 'html',
-                feedback: value4 || undefined, // Feedback in 5th column
-                feedbackHtmlFlag: value5.toLowerCase() === 'html', // HTML flag for feedback in 6th column
+                feedback: value4 || undefined, 
+                feedbackHtmlFlag: value5.toLowerCase() === 'html', 
               });
             } else if (currentQuestion.type === 'MS') {
               const msq = currentQuestion as Partial<MultiSelectQuestion>;
               if (!msq.options) msq.options = [];
               msq.options.push({
-                // D2L uses 'Correct'/'Incorrect' or weight. Standardize to weight.
-                // Assume non-numeric value means incorrect (weight 0) unless specific logic needed.
-                weight: safeParseInt(value, 0), // Weight/Correctness in 2nd column
-                text: value2, // Text in 3rd column
-                htmlFlag: value3.toLowerCase() === 'html', // HTML flag in 4th column
-                feedback: value4 || undefined, // Feedback in 5th column
-                feedbackHtmlFlag: value5.toLowerCase() === 'html', // HTML flag for feedback in 6th column
+                weight: safeParseInt(value, 0), 
+                text: value2, 
+                htmlFlag: value3.toLowerCase() === 'html', 
+                feedback: value4 || undefined, 
+                feedbackHtmlFlag: value5.toLowerCase() === 'html', 
               });
             } else {
-                 console.warn(`[Line ${currentLineNumber}] 'Option' row encountered for incompatible question type: ${currentQuestion.type}. Ignoring.`);
+                 console.warn(`[Record ${currentLineNumber}] 'Option' row encountered for incompatible question type: ${currentQuestion.type}. Ignoring.`);
             }
             break;
 
-          // True/False specific
           case 'true':
             if (currentQuestion.type === 'TF') {
               const tfq = (currentQuestion as Partial<TrueFalseQuestion>);
               tfq.trueOption = {
                 isTrue: true,
-                credit: safeParseInt(value), // Credit in 2nd column
-                feedback: value2 || undefined, // Feedback in 3rd column
-                htmlFlag: value3.toLowerCase() === 'html', // HTML flag in 4th column
-                definedLine: currentLineNumber, // Track definition line for feedback assignment heuristic
+                credit: safeParseInt(value), 
+                feedback: value2 || undefined, 
+                htmlFlag: value3.toLowerCase() === 'html', 
+                definedLine: currentLineNumber, 
               };
             } else {
-                 console.warn(`[Line ${currentLineNumber}] 'True' row encountered for non-TF question type: ${currentQuestion.type}. Ignoring.`);
+                 console.warn(`[Record ${currentLineNumber}] 'True' row encountered for non-TF question type: ${currentQuestion.type}. Ignoring.`);
             }
             break;
           case 'false':
@@ -291,47 +313,42 @@ export function parseQuizCsv(csvContent: string): Quiz {
               const tfq = (currentQuestion as Partial<TrueFalseQuestion>);
               tfq.falseOption = {
                 isTrue: false,
-                credit: safeParseInt(value), // Credit in 2nd column
-                feedback: value2 || undefined, // Feedback in 3rd column
-                htmlFlag: value3.toLowerCase() === 'html', // HTML flag in 4th column
-                definedLine: currentLineNumber, // Track definition line for feedback assignment heuristic
+                credit: safeParseInt(value), 
+                feedback: value2 || undefined, 
+                htmlFlag: value3.toLowerCase() === 'html', 
+                definedLine: currentLineNumber, 
               };
             } else {
-                 console.warn(`[Line ${currentLineNumber}] 'False' row encountered for non-TF question type: ${currentQuestion.type}. Ignoring.`);
+                 console.warn(`[Record ${currentLineNumber}] 'False' row encountered for non-TF question type: ${currentQuestion.type}. Ignoring.`);
             }
             break;
 
-
-          // Ordering specific
-          case 'item': // For O
+          case 'item': 
             if (currentQuestion.type === 'O') {
               const oq = currentQuestion as Partial<OrderingQuestion>;
               if (!oq.items) oq.items = [];
               oq.items.push({
-                text: value, // Item text in 2nd column
-                htmlFlag: value2.toLowerCase() === 'html', // HTML flag in 3rd column
-                feedback: value3 || undefined, // Feedback in 4th column
-                feedbackHtmlFlag: value5.toLowerCase() === 'html', // D2L uses col 6 (index 5) for item feedback HTML flag
+                text: value, 
+                htmlFlag: value2.toLowerCase() === 'html', 
+                feedback: value3 || undefined, 
+                feedbackHtmlFlag: value5.toLowerCase() === 'html', 
               });
             } else {
-                 console.warn(`[Line ${currentLineNumber}] 'Item' row encountered for non-Ordering question type: ${currentQuestion.type}. Ignoring.`);
+                 console.warn(`[Record ${currentLineNumber}] 'Item' row encountered for non-Ordering question type: ${currentQuestion.type}. Ignoring.`);
             }
             break;
 
           default:
-             if (typeOrKey && typeOrKey.trim() !== '') { // Log only if it's not just an empty row/separator
-                 console.log(`[Line ${currentLineNumber}] Ignoring unrecognized row type or key: '${typeOrKey}'`);
+             if (typeOrKey && typeOrKey.trim() !== '') { 
+                 console.log(`[Record ${currentLineNumber}] Ignoring unrecognized row type or key: '${typeOrKey}'`);
              }
             break;
         }
     } catch (e) {
-        console.error(`[Line ${currentLineNumber}] Error processing row: ${rawRow}. Error: ${e instanceof Error ? e.message : String(e)}`);
-        // Optionally decide whether to skip the whole question or just this row's data
-        // For now, we continue processing, but the question might be incomplete/invalid
+        console.error(`[Record ${currentLineNumber}] Error processing record: ${rawRecord}. Error: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
-  // Add the last processed question if it's valid
   if (currentQuestion) {
     let isValid = true;
     let skipReason = "";
@@ -349,7 +366,7 @@ export function parseQuizCsv(csvContent: string): Quiz {
         isValid = false; skipReason = "MultiSelect question has no options.";
     } else if (currentQuestion.type === 'O' && (!currentQuestion.items || currentQuestion.items.length === 0)) {
         isValid = false; skipReason = "Ordering question has no items.";
-    } else if (currentQuestion.type === 'SA' && currentQuestion.bestAnswer === undefined) { // Check for undefined specifically
+    } else if (currentQuestion.type === 'SA' && currentQuestion.bestAnswer === undefined) { 
         isValid = false; skipReason = "ShortAnswer question lacks a defined best answer.";
     }
 
@@ -360,6 +377,6 @@ export function parseQuizCsv(csvContent: string): Quiz {
     }
   }
 
-
   return { questions };
 }
+
