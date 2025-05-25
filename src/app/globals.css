@@ -94,14 +94,14 @@ body {
 /* Custom styles for rendered HTML content, especially tables */
 @layer components {
   .rendered-html-content table {
-    @apply w-full my-4 border-collapse border border-border text-sm;
+    @apply w-full my-4 border-collapse border-2 border-primary text-sm; /* Use border-2 and border-primary */
   }
   .rendered-html-content th,
   .rendered-html-content td {
-    @apply border border-border px-3 py-2 text-left align-top;
+    @apply border border-primary px-3 py-2 text-left align-top text-foreground; /* Use border-primary and text-foreground */
   }
   .rendered-html-content th {
-    @apply bg-muted font-semibold;
+    @apply bg-muted font-semibold text-foreground; /* Ensure text-foreground for headers */
   }
   .rendered-html-content p {
     @apply my-2; /* Add some margin to paragraphs inside rendered HTML */
