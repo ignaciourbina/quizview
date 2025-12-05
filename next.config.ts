@@ -1,7 +1,10 @@
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: 'export',           // Enable static HTML export
+  distDir: 'docs',            // Output to docs/ for GitHub Pages
+  basePath: '/quizview',      // Must match your GitHub repo name
+  assetPrefix: '/quizview/',  // Prefix for all assets
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -9,6 +12,7 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   images: {
+    unoptimized: true, // Required for static export
     remotePatterns: [
       {
         protocol: 'https',

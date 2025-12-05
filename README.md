@@ -1,5 +1,5 @@
-# Firebase Studio
+# QuizView
 
-This is a NextJS starter in Firebase Studio.
+A Next.js application for viewing and taking quizzes.
 
-To get started, take a look at src/app/page.tsx.
+To get started, take a look at `src/app/page.tsx`.
